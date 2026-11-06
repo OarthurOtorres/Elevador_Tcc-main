@@ -64,8 +64,11 @@ void loop() {
       } else {
         andarDestino = escolherProximoAndar();
         
+        // TRAVA DE SEGURANÇA: Só permite partir para outro andar se a porta estiver 100% FECHADA
         if (andarDestino != 0 && andarDestino != andarAtual) {
-          estado = 1; 
+          if (portaEstaTotalmenteFechada()) {
+            estado = 1; 
+          }
         }
       }
 

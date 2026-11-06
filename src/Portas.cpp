@@ -17,15 +17,15 @@
 #define ANGULO_FECHADO_P1  5  
 #define ANGULO_ABERTO_P1   95  
 
-// ANDAR 2 (Mantido o padrão que já funcionou)
+//pos diferente pra ficar paralelo a cabine
 #define ANGULO_FECHADO_P2  16
 #define ANGULO_ABERTO_P2   106
 
-// ANDAR 3 (Mantido o padrão que já funcionou)
+
 #define ANGULO_FECHADO_P3  5
 #define ANGULO_ABERTO_P3   95
 
-// TEMPO DE MOVIMENTO (Ajuste a velocidade: 2400ms = metade da velocidade original)
+// TEMPO DE MOVIMENTO
 #define TEMPO_MOVIMENTO 1500 
 // ============================================================================
 
