@@ -13,19 +13,16 @@
 // ============================================================================
 // 🎯 CALIBRAÇÃO MECÂNICA DOS ÂNGULOS POR ANDAR
 // ============================================================================
-// ANDAR 1 (Ajuste aqui o offset para deixar a porta do 1º andar paralela)
-#define ANGULO_FECHADO_P1  5  
-#define ANGULO_ABERTO_P1   95  
+#define ANGULO_FECHADO_P1  5  // Calibração de fecho do 1º andar
+#define ANGULO_ABERTO_P1   95  // Calibração de abertura do 1º andar
 
-//pos diferente pra ficar paralelo a cabine
-#define ANGULO_FECHADO_P2  16
+#define ANGULO_FECHADO_P2  16   // Calibração do 2º andar
 #define ANGULO_ABERTO_P2   106
 
-
-#define ANGULO_FECHADO_P3  5
+#define ANGULO_FECHADO_P3  5   // Calibração do 3º andar
 #define ANGULO_ABERTO_P3   95
 
-// TEMPO DE MOVIMENTO
+// TEMPO DE MOVIMENTO (2400ms = metade da velocidade original / movimento suave)
 #define TEMPO_MOVIMENTO 1500 
 // ============================================================================
 
@@ -45,7 +42,6 @@ Servo servoP1;
 Servo servoP2;
 Servo servoP3;
 
-// --- FUNÇÕES AUXILIARES DE CALIBRAÇÃO ---
 Servo* getServoAndar(int andar) {
   if (andar == 1) return &servoP1;
   if (andar == 2) return &servoP2;
@@ -71,7 +67,6 @@ bool sensorObstaculoAtivo() {
   return (digitalRead(SENSOR_IV_PIN) == LOW);
 }
 
-// Wrapper para o Bluetooth verificar o feixe IR
 bool lerSensorIR() {
   return sensorObstaculoAtivo();
 }
@@ -83,10 +78,16 @@ void inicializarPortas() {
   servoP2.attach(SERVO_P2, 500, 2500);
   servoP3.attach(SERVO_P3, 500, 2500);
 
-  // Inicializa cada porta no seu respetivo ângulo fechado calibrado
   servoP1.write(getAnguloFechado(1));
   servoP2.write(getAnguloFechado(2));
   servoP3.write(getAnguloFechado(3));
+
+  delay(300);
+
+  // Desconecta os servos para impedir trepidações por ruído elétrico durante o Homing
+  servoP1.detach();
+  servoP2.detach();
+  servoP3.detach();
 
   estadoAtualPorta = PORTA_FECHADA;
 }
@@ -98,8 +99,8 @@ void comandarAberturaPorta(int andar) {
   tempoInicioObstrucao = 0;
 
   Servo* s = getServoAndar(andarAtualPorta);
+  int pino = (andar == 1 ? SERVO_P1 : (andar == 2 ? SERVO_P2 : SERVO_P3));
   if (!s->attached()) {
-    int pino = (andar == 1 ? SERVO_P1 : (andar == 2 ? SERVO_P2 : SERVO_P3));
     s->attach(pino, 500, 2500);
   }
 }
@@ -108,7 +109,6 @@ void gerenciarMaquinaPortas() {
   unsigned long agora = millis();
   bool haObstaculo = sensorObstaculoAtivo();
 
-  // Obtém os ângulos calibrados específicos do andar que está operando
   int anguloFechadoAndar = getAnguloFechado(andarAtualPorta);
   int anguloAbertoAndar  = getAnguloAberto(andarAtualPorta);
 
@@ -123,7 +123,6 @@ void gerenciarMaquinaPortas() {
       unsigned long decorrido = agora - tempoInicioEstado;
       if (decorrido > TEMPO_MOVIMENTO) decorrido = TEMPO_MOVIMENTO;
       
-      // Movimento suave progressivo usando a calibração específica do andar
       int angulo = map(decorrido, 0, TEMPO_MOVIMENTO, anguloFechadoAndar, anguloAbertoAndar);
       getServoAndar(andarAtualPorta)->write(angulo);
 
@@ -143,7 +142,7 @@ void gerenciarMaquinaPortas() {
           tempoInicioObstrucao = agora;
         }
 
-        if (agora - tempoInicioObstrucao >= 4000) { //Tempo de espera pra pessoa sair da porta
+        if (agora - tempoInicioObstrucao >= 4000) {
           setAlertaObstrucao(true);
         }
       } else {
@@ -161,22 +160,30 @@ void gerenciarMaquinaPortas() {
       unsigned long decorrido = agora - tempoInicioEstado;
       if (decorrido > TEMPO_MOVIMENTO) decorrido = TEMPO_MOVIMENTO;
 
-      // Fechamento progressivo até o ângulo calibrado de fecho
       int angulo = map(decorrido, 0, TEMPO_MOVIMENTO, anguloAbertoAndar, anguloFechadoAndar);
       getServoAndar(andarAtualPorta)->write(angulo);
 
-      if (haObstaculo) { // Reabertura se o feixe IR for interrompido
+      // REABERTURA INSTANTÂNEA AO DETECTAR OBSTÁCULO NO IR
+      if (haObstaculo) {
+        // Calcula a posição atual e mapeia para o tempo equivalente de abertura
+        unsigned long decorridoAbrindoEquiv = map(angulo, anguloFechadoAndar, anguloAbertoAndar, 0, TEMPO_MOVIMENTO);
+
+        // Inverte a máquina de estados imediatamente sem dar tranco nem fechar mais nada
         estadoAtualPorta = PORTA_ABRINDO;
-        tempoInicioEstado = agora;
+        tempoInicioEstado = agora - decorridoAbrindoEquiv;
         tempoInicioObstrucao = agora;
         setAlertaObstrucao(false);
         break;
       }
 
       if (decorrido >= TEMPO_MOVIMENTO) { 
+        getServoAndar(andarAtualPorta)->write(anguloFechadoAndar);
         estadoAtualPorta = PORTA_FECHADA;
         setAlertaObstrucao(false);
         tempoInicioObstrucao = 0;
+
+        // Desconecta o sinal do servo ao fechar 100% para evitar ruído e movimentos involuntários
+        getServoAndar(andarAtualPorta)->detach();
       }
       break;
     }
@@ -193,16 +200,31 @@ bool portaEstaAberta() {
 
 void ativarPortaEmergencia(int andar) {
   setAlertaObstrucao(false);
+  andarAtualPorta = andar;
   Servo* s = getServoAndar(andar);
+  int pino = (andar == 1 ? SERVO_P1 : (andar == 2 ? SERVO_P2 : SERVO_P3));
+  
+  if (!s->attached()) {
+    s->attach(pino, 500, 2500);
+  }
+  
   s->write(getAnguloAberto(andar));
   delay(500);
   s->detach();
 }
 
 void restaurarPortasAposEmergencia(int andar) {
+  andarAtualPorta = andar;
   Servo* s = getServoAndar(andar);
   int pino = (andar == 1 ? SERVO_P1 : (andar == 2 ? SERVO_P2 : SERVO_P3));
-  s->attach(pino, 500, 2500);
-  s->write(getAnguloFechado(andar));
-  estadoAtualPorta = PORTA_FECHADA;
+  
+  if (!s->attached()) {
+    s->attach(pino, 500, 2500);
+  }
+
+  // Posiciona em aberto e inicia o fechamento progressivo e suave (2400ms)
+  s->write(getAnguloAberto(andar));
+  estadoAtualPorta = PORTA_FECHANDO;
+  tempoInicioEstado = millis();
+  setAlertaObstrucao(false);
 }
